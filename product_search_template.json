@@ -1,0 +1,16 @@
+{
+  "search_criteria": {
+    "category": "{category}",
+    "price_range": {
+      "min": "{min_price}",
+      "max": "{max_price}"
+    },
+    "keywords": "{keywords}",
+    "sort_by": "price",
+    "sort_order": "asc"
+  },
+  "pagination": {
+    "page": 1,
+    "per_page": 20
+  }
+} 

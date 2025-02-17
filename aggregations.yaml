@@ -1,0 +1,67 @@
+version: 1.0.0
+aggregations:
+  user_order_summary:
+    id: AGG001
+    description: "Aggregate user data with their order history"
+    steps:
+      - id: step1
+        operation_id: getUserData
+        api_spec: apis/pacs_api.yaml
+        params:
+          path:
+            user_id: "{user_id}"
+          query:
+            include_details: true
+        save_as: user_info
+        jmespath_query: "user.data"
+      
+      - id: step2
+        operation_id: getOrderHistory
+        api_spec: apis/pacs_api.yaml
+        params:
+          query:
+            user_id: "{user_id}"
+            status: "completed"
+        save_as: orders
+        jmespath_query: "orders[*].{order_id: id, total: amount, date: created_at}"
+    
+    transform_query: "{
+      user_id: user_info.id,
+      name: user_info.name,
+      email: user_info.email,
+      total_orders: length(orders),
+      total_spent: sum(orders[*].total),
+      recent_orders: orders[0:5]
+    }"
+
+  product_order_details:
+    id: AGG002
+    description: "Get product details for each item in an order"
+    steps:
+      - id: step1
+        operation_id: getOrderHistory
+        api_spec: apis/pacs_api.yaml
+        params:
+          query:
+            user_id: "{user_id}"
+        save_as: orders
+        filter_query: "orders[?id == '{order_id}']"
+      
+      - id: step2
+        operation_id: searchProducts
+        api_spec: apis/product_api.yaml
+        params:
+          body:
+            search_criteria:
+              product_ids: "{orders[0].items[*].product_id}"
+        save_as: products
+        jmespath_query: "products[*].{id: product_id, name: product_name, price: current_price}"
+    
+    transform_query: "{
+      order_details: orders[0],
+      items: orders[0].items[*].{
+        product_id: product_id,
+        quantity: quantity,
+        product_info: products[?id == product_id][0]
+      }
+    }" 

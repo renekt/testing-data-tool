@@ -1,0 +1,66 @@
+openapi: 3.0.0
+info:
+  title: Product API
+  version: 1.0.0
+servers:
+  - url: https://product-api.example.com
+    description: Product API server
+
+paths:
+  /products/search:
+    post:
+      operationId: searchProducts
+      summary: Search for products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                search_criteria:
+                  type: object
+                  properties:
+                    category:
+                      type: string
+                    price_range:
+                      type: object
+                      properties:
+                        min:
+                          type: string
+                        max:
+                          type: string
+                    keywords:
+                      type: string
+                    sort_by:
+                      type: string
+                      enum: [price, name, popularity]
+                    sort_order:
+                      type: string
+                      enum: [asc, desc]
+                pagination:
+                  type: object
+                  properties:
+                    page:
+                      type: integer
+                    per_page:
+                      type: integer
+      responses:
+        '200':
+          description: Products retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        product_id:
+                          type: string
+                        product_name:
+                          type: string
+                        current_price:
+                          type: number 

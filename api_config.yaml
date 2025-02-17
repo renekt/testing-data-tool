@@ -1,0 +1,44 @@
+# API Configuration
+api_endpoints:
+  pacs:
+    base_url: "https://user-api.example.com"
+    endpoints:
+      get_user_data:
+        path: "/users/{user_id}"
+        method: "GET"
+        headers:
+          Content-Type: "application/json"
+        params:
+          include_details: true
+        jmespath_query: "user.data"
+      get_order_history:
+        path: "/orders"
+        method: "GET"
+        headers:
+          Content-Type: "application/json"
+        params:
+          user_id: "{user_id}"
+          status: "completed"
+        jmespath_query: "orders[*].{order_id: id, total: amount, date: created_at}"
+      create_order:
+        path: "/orders"
+        method: "POST"
+        headers:
+          Content-Type: "application/json"
+        body: {
+          "user_id": "{user_id}",
+          "items": [
+            {
+              "product_id": "PROD123",
+              "quantity": 2
+            }
+          ]
+        }
+        jmespath_query: "order.details"
+      search_products:
+        path: "/products/search"
+        method: "POST"
+        headers:
+          Content-Type: "application/json"
+        body_template: "product_search_template.json"  # Load request body from external file
+        jmespath_query: "products[*].{id: product_id, name: product_name, price: current_price}"
