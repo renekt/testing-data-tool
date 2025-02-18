@@ -34,6 +34,36 @@ aggregations:
       recent_orders: orders[0:5]
     }"
 
+  find_valid_users:
+    id: AGG003
+    description: "Find users with valid email from a list of user IDs"
+    iteration:
+      input_param: "user_id"
+      input_list: "{user_ids}"
+      validation:
+        field: "user_info.email"
+        condition: "not_empty"
+    steps:
+      - id: step1
+        operation_id: getUserData
+        api_spec: apis/pacs_api.yaml
+        params:
+          path:
+            user_id: "{user_id}"
+          query:
+            include_details: true
+        save_as: user_info
+        jmespath_query: "user.data"
+    
+    transform_query: "{
+      valid_user_ids: valid_items[*].user_info.id,
+      user_details: valid_items[*].{
+        id: user_info.id,
+        name: user_info.name,
+        email: user_info.email
+      }
+    }"
+
   product_order_details:
     id: AGG002
     description: "Get product details for each item in an order"

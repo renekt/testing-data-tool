@@ -7,6 +7,7 @@ import requests
 from typing import Dict, Any, Optional, Union, List
 from dotenv import load_dotenv
 from urllib.parse import urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class OpenAPISpec:
     def __init__(self, spec_file: str):
@@ -42,15 +43,17 @@ class OpenAPISpec:
         return self.spec['servers'][0]['url']
 
 class TestDataConstructor:
-    def __init__(self, aggregation_file: str):
+    def __init__(self, aggregation_file: str, max_workers: int = 5):
         """
         Initialize the TestDataConstructor with an aggregation configuration file.
         
         Args:
             aggregation_file (str): Path to the aggregation configuration file
+            max_workers (int): Maximum number of concurrent workers for parallel processing
         """
         self.aggregations = self._load_config(aggregation_file)
         self.api_specs = {}  # Cache for loaded OpenAPI specs
+        self.max_workers = max_workers
         load_dotenv()
 
     def _load_config(self, config_file: str) -> Dict[str, Any]:
@@ -96,6 +99,28 @@ class TestDataConstructor:
         elif isinstance(data, list):
             return [self._format_data(item, params, context) for item in data]
         return data
+
+    def _validate_data(self, data: Dict[str, Any], validation: Dict[str, Any]) -> bool:
+        """
+        Validate data according to validation rules.
+        
+        Args:
+            data: Data to validate
+            validation: Validation configuration
+        
+        Returns:
+            bool: Whether the data is valid
+        """
+        field_value = jmespath.search(validation['field'], data)
+        
+        if validation['condition'] == 'not_empty':
+            return field_value is not None and field_value != ''
+        elif validation['condition'] == 'equals':
+            return field_value == validation.get('value')
+        elif validation['condition'] == 'contains':
+            return validation.get('value') in field_value
+        
+        return False
 
     def _execute_step(self, step: Dict[str, Any], params: Dict[str, Any], context: Dict[str, Any]) -> Any:
         """
@@ -161,6 +186,57 @@ class TestDataConstructor:
 
         return data
 
+    def _execute_iteration(self, aggregation: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Execute steps for each item in the input list.
+        
+        Args:
+            aggregation: Aggregation configuration
+            params: Parameters including the input list
+        
+        Returns:
+            List[Dict[str, Any]]: List of results for valid items
+        """
+        iteration_config = aggregation['iteration']
+        input_list = self._format_data(iteration_config['input_list'], params)
+        input_param = iteration_config['input_param']
+        
+        all_results = []
+        valid_results = []
+
+        def process_item(item):
+            # Prepare parameters for this iteration
+            item_params = {**params, input_param: item}
+            
+            try:
+                # Execute steps for this item
+                context = {}
+                for step in aggregation['steps']:
+                    result = self._execute_step(step, item_params, context)
+                    context[step['save_as']] = result
+                
+                # Validate results if validation is configured
+                if 'validation' in iteration_config:
+                    is_valid = self._validate_data(context, iteration_config['validation'])
+                    if is_valid:
+                        return context
+                else:
+                    return context
+            except Exception as e:
+                print(f"Error processing item {item}: {str(e)}")
+            
+            return None
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_item = {executor.submit(process_item, item): item for item in input_list}
+            for future in as_completed(future_to_item):
+                result = future.result()
+                if result is not None:
+                    valid_results.append(result)
+
+        return valid_results
+
     def _apply_jmespath(self, data: Any, query: str) -> Any:
         """Apply JMESPath query to extract and transform data."""
         return jmespath.search(query, data)
@@ -186,11 +262,16 @@ class TestDataConstructor:
         if not aggregation:
             raise ValueError(f"Aggregation with ID {aggregation_id} not found")
 
-        # Execute steps
-        context = {}
-        for step in aggregation['steps']:
-            result = self._execute_step(step, params, context)
-            context[step['save_as']] = result
+        # Handle iteration if configured
+        if 'iteration' in aggregation:
+            valid_results = self._execute_iteration(aggregation, params)
+            context = {'valid_items': valid_results}
+        else:
+            # Execute steps normally
+            context = {}
+            for step in aggregation['steps']:
+                result = self._execute_step(step, params, context)
+                context[step['save_as']] = result
 
         # Apply final transformation
         if 'transform_query' in aggregation:
@@ -206,22 +287,21 @@ def main():
     # Example usage
     constructor = TestDataConstructor('aggregations.yaml')
     
-    # Example 1: Get user order summary
+    # Example 1: Find valid users from a list
+    valid_users = constructor.construct_test_data(
+        'AGG003',  # find_valid_users
+        {
+            'user_ids': ['12345', '67890', '11111', '22222']
+        }
+    )
+    constructor.save_test_data(valid_users, 'valid_users.json')
+    
+    # Example 2: Get user order summary
     user_summary = constructor.construct_test_data(
         'AGG001',  # user_order_summary
         {'user_id': '12345'}
     )
     constructor.save_test_data(user_summary, 'user_order_summary.json')
-    
-    # Example 2: Get product order details
-    order_details = constructor.construct_test_data(
-        'AGG002',  # product_order_details
-        {
-            'user_id': '12345',
-            'order_id': 'ORDER789'
-        }
-    )
-    constructor.save_test_data(order_details, 'order_details.json')
 
 if __name__ == '__main__':
     main() 
