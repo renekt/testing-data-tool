@@ -3,7 +3,7 @@ info:
   title: PACS API
   version: 1.0.0
 servers:
-  - url: https://user-api.example.com
+  - url: http://127.0.0.1:9000
     description: PACS API server
 
 paths:

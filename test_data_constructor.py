@@ -8,6 +8,9 @@ from typing import Dict, Any, Optional, Union, List
 from dotenv import load_dotenv
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import argparse
+from pathlib import Path
+import sys
 
 class OpenAPISpec:
     def __init__(self, spec_file: str):
@@ -73,12 +76,12 @@ class TestDataConstructor:
             path = path.replace(f"{{{key}}}", str(value))
         return path
 
-    def _format_data(self, data: Union[Dict, str], params: Dict[str, Any], context: Dict[str, Any] = None) -> Any:
+    def _format_data(self, data: Union[Dict, str, List], params: Dict[str, Any], context: Dict[str, Any] = None) -> Any:
         """
         Format data by replacing placeholders with actual values.
         
         Args:
-            data: Dictionary or string to format
+            data: Dictionary, string, or list to format
             params: User-provided parameters
             context: Context from previous steps
         """
@@ -163,7 +166,10 @@ class TestDataConstructor:
         body = None
         if 'body' in step.get('params', {}):
             body = self._format_data(step['params']['body'], params, context)
-
+        
+        print(f"Making request to {url} with method {operation['method']}")
+        print(f"Query params: {query_params}")
+        print(f"Request body: {body}")
         # Make request
         response = requests.request(
             method=operation['method'],
@@ -174,6 +180,8 @@ class TestDataConstructor:
         )
         response.raise_for_status()
         data = response.json()
+        print(f"Response status code: {response.status_code}")
+        print(f"Response data: {data}")
 
         # Apply JMESPath transformation
         if 'jmespath_query' in step:
@@ -198,8 +206,17 @@ class TestDataConstructor:
             List[Dict[str, Any]]: List of results for valid items
         """
         iteration_config = aggregation['iteration']
-        input_list = self._format_data(iteration_config['input_list'], params)
+        input_list_key = iteration_config['input_list'][1:-1]  # Remove the curly braces
+        input_list = params.get(input_list_key)
+        
+        if not isinstance(input_list, list):
+            raise ValueError(f"Input list '{input_list_key}' must be an array, got {type(input_list)}")
+        
+        if not input_list:
+            raise ValueError(f"Input list '{input_list_key}' cannot be empty")
+            
         input_param = iteration_config['input_param']
+        print(f"Processing {len(input_list)} items with parameter '{input_param}'")
         
         all_results = []
         valid_results = []
@@ -219,7 +236,10 @@ class TestDataConstructor:
                 if 'validation' in iteration_config:
                     is_valid = self._validate_data(context, iteration_config['validation'])
                     if is_valid:
+                        print(f"Item {item} is valid")
                         return context
+                    else:
+                        print(f"Item {item} failed validation")
                 else:
                     return context
             except Exception as e:
@@ -235,6 +255,7 @@ class TestDataConstructor:
                 if result is not None:
                     valid_results.append(result)
 
+        print(f"Found {len(valid_results)} valid items out of {len(input_list)} total items")
         return valid_results
 
     def _apply_jmespath(self, data: Any, query: str) -> Any:
@@ -283,25 +304,166 @@ class TestDataConstructor:
         with open(output_file, 'w') as f:
             json.dump(data, f, indent=2)
 
-def main():
-    # Example usage
-    constructor = TestDataConstructor('aggregations.yaml')
+class TestScenario:
+    """Predefined test scenarios for easy testing"""
     
-    # Example 1: Find valid users from a list
-    valid_users = constructor.construct_test_data(
-        'AGG003',  # find_valid_users
-        {
-            'user_ids': ['12345', '67890', '11111', '22222']
+    @staticmethod
+    def find_valid_users() -> Dict[str, Any]:
+        """Test scenario for finding valid users"""
+        return {
+            'aggregation_id': 'AGG003',
+            'params': {
+                'user_ids': ['12345', '67890', '11111', '22222']
+            },
+            'output_file': 'valid_users.json'
         }
-    )
-    constructor.save_test_data(valid_users, 'valid_users.json')
     
-    # Example 2: Get user order summary
-    user_summary = constructor.construct_test_data(
-        'AGG001',  # user_order_summary
-        {'user_id': '12345'}
+    @staticmethod
+    def user_order_summary() -> Dict[str, Any]:
+        """Test scenario for getting user order summary"""
+        return {
+            'aggregation_id': 'AGG001',
+            'params': {
+                'user_id': '12345'
+            },
+            'output_file': 'user_order_summary.json'
+        }
+    
+    @staticmethod
+    def product_order_details() -> Dict[str, Any]:
+        """Test scenario for getting product order details"""
+        return {
+            'aggregation_id': 'AGG002',
+            'params': {
+                'user_id': '12345',
+                'order_id': 'ORDER789'
+            },
+            'output_file': 'order_details.json'
+        }
+
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Test Data Constructor',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  1. Run with predefined scenario:
+     python test_data_constructor.py --scenario find_valid_users
+
+  2. Run with custom parameters (using single quotes):
+     python test_data_constructor.py --aggregation-id AGG003 --params '{"user_ids": ["12345", "67890"]}'
+
+  3. Run with custom parameters (using escaped double quotes):
+     python test_data_constructor.py --aggregation-id AGG003 --params "{\"user_ids\": [\"12345\", \"67890\"]}"
+
+  4. Run with parameters from file:
+     python test_data_constructor.py --aggregation-id AGG003 --params-file params.json
+'''
     )
-    constructor.save_test_data(user_summary, 'user_order_summary.json')
+    
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='aggregations.yaml',
+        help='Path to aggregation configuration file'
+    )
+    
+    parser.add_argument(
+        '--scenario',
+        type=str,
+        choices=['find_valid_users', 'user_order_summary', 'product_order_details'],
+        help='Predefined test scenario to run'
+    )
+    
+    parser.add_argument(
+        '--aggregation-id',
+        type=str,
+        help='ID of the aggregation to execute'
+    )
+    
+    # 参数组：params 和 params-file 互斥
+    params_group = parser.add_mutually_exclusive_group()
+    params_group.add_argument(
+        '--params',
+        type=str,  # Changed from json.loads to str to handle parsing separately
+        help='JSON string of parameters for the aggregation'
+    )
+    params_group.add_argument(
+        '--params-file',
+        type=str,
+        help='Path to JSON file containing parameters'
+    )
+    
+    parser.add_argument(
+        '--output',
+        type=str,
+        help='Output file path for the test data'
+    )
+    
+    args = parser.parse_args()
+    
+    # Handle parameter parsing
+    if args.params:
+        try:
+            args.params = json.loads(args.params)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in --params: {str(e)}\nMake sure to properly quote or escape the JSON string.")
+    elif args.params_file:
+        try:
+            with open(args.params_file, 'r') as f:
+                args.params = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            raise ValueError(f"Error reading parameters from {args.params_file}: {str(e)}")
+    
+    return args
+
+def main():
+    """Main function that can be run from PyCharm or command line"""
+    try:
+        args = parse_args()
+        
+        # Initialize constructor
+        constructor = TestDataConstructor(args.config)
+        
+        # If scenario is specified, use predefined test scenario
+        if args.scenario:
+            scenario = getattr(TestScenario, args.scenario)()
+            aggregation_id = scenario['aggregation_id']
+            params = scenario['params']
+            output_file = scenario['output_file']
+        else:
+            # Use command line arguments
+            if not args.aggregation_id or (not args.params and not args.params_file):
+                raise ValueError("Either --scenario or both --aggregation-id and (--params or --params-file) must be specified")
+            aggregation_id = args.aggregation_id
+            params = args.params
+            output_file = args.output or f"{aggregation_id}_output.json"
+        
+        # Execute the aggregation
+        print(f"Executing aggregation {aggregation_id} with params: {json.dumps(params, indent=2)}")
+        result = constructor.construct_test_data(aggregation_id, params)
+        
+        # Save results
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        constructor.save_test_data(result, output_file)
+        print(f"Results saved to {output_file}")
+        
+        # Print summary
+        if isinstance(result, dict):
+            print("\nResult Summary:")
+            for key, value in result.items():
+                if isinstance(value, list):
+                    print(f"{key}: {len(value)} items")
+                else:
+                    print(f"{key}: {value}")
+    
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        sys.exit(1)
 
 if __name__ == '__main__':
     main() 

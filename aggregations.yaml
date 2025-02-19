@@ -14,6 +14,10 @@ aggregations:
             include_details: true
         save_as: user_info
         jmespath_query: "user.data"
+        validation:
+          field: "user.data.name"
+          condition: "contains"
+          value: "A"
       
       - id: step2
         operation_id: getOrderHistory
@@ -26,16 +30,19 @@ aggregations:
         jmespath_query: "orders[*].{order_id: id, total: amount, date: created_at}"
     
     transform_query: "{
-      user_id: user_info.id,
-      name: user_info.name,
-      email: user_info.email,
-      total_orders: length(orders),
-      total_spent: sum(orders[*].total),
-      recent_orders: orders[0:5]
+      input_user_id: user_id,
+      user_data: {
+        user_id: user_info.id,
+        name: user_info.name,
+        email: user_info.email,
+        total_orders: length(orders),
+        total_spent: sum(orders[*].total),
+        recent_orders: orders[0:5]
+      }
     }"
 
   find_valid_users:
-    id: AGG003
+    id: AGG002
     description: "Find users with valid email from a list of user IDs"
     iteration:
       input_param: "user_id"
@@ -56,16 +63,17 @@ aggregations:
         jmespath_query: "user.data"
     
     transform_query: "{
-      valid_user_ids: valid_items[*].user_info.id,
+      valid_user_ids: valid_items[*].user_id,
       user_details: valid_items[*].{
-        id: user_info.id,
+        input_id: user_id,
+        api_id: user_info.id,
         name: user_info.name,
         email: user_info.email
       }
     }"
 
   product_order_details:
-    id: AGG002
+    id: AGG003
     description: "Get product details for each item in an order"
     steps:
       - id: step1
