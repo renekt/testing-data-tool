@@ -1,0 +1,56 @@
+{
+  "input_user_id": "12",
+  "validated_user_id": null,
+  "user_data": {
+    "user_id": "12",
+    "name": "Jip",
+    "email": "Jip@gmail.com",
+    "validation_status": false,
+    "validation_details": {
+      "field": "name",
+      "condition": "contains",
+      "value": "J",
+      "passed": false
+    },
+    "total_orders": 1,
+    "total_spent": 486.0,
+    "recent_orders": [
+      {
+        "order_id": "DIRAP",
+        "total": 486.0,
+        "date": "2025-02-19T23:50:54+08:00"
+      }
+    ]
+  },
+  "validation_summary": {
+    "all_steps": [
+      {
+        "step_id": "step1",
+        "data": {
+          "id": "12",
+          "name": "Jip",
+          "email": "Jip@gmail.com"
+        },
+        "validation": {
+          "field": "name",
+          "condition": "contains",
+          "value": "J",
+          "passed": false
+        }
+      },
+      {
+        "step_id": "step2",
+        "data": [
+          {
+            "order_id": "DIRAP",
+            "total": 486.0,
+            "date": "2025-02-19T23:50:54+08:00"
+          }
+        ],
+        "validation": null
+      }
+    ],
+    "valid_steps": [],
+    "valid_user_ids": []
+  }
+}

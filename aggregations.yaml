@@ -15,9 +15,9 @@ aggregations:
         save_as: user_info
         jmespath_query: "user.data"
         validation:
-          field: "user.data.name"
+          field: "name"
           condition: "contains"
-          value: "A"
+          value: "J"
       
       - id: step2
         operation_id: getOrderHistory
@@ -30,7 +30,8 @@ aggregations:
         jmespath_query: "orders[*].{order_id: id, total: amount, date: created_at}"
     
     transform_query: "{
-      input_user_id: user_id,
+      input_user_id: params.user_id,
+      validated_user_id: [user_info.id][?user_info_validation.is_valid] | [0],
       user_data: {
         user_id: user_info.id,
         name: user_info.name,
@@ -43,7 +44,8 @@ aggregations:
       },
       validation_summary: {
         all_steps: all_results,
-        valid_steps: valid_results
+        valid_steps: valid_results,
+        valid_user_ids: [user_info.id][?user_info_validation.is_valid]
       }
     }"
 

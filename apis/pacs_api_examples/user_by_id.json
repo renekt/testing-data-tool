@@ -1,0 +1,21 @@
+{
+    "http-request": {
+        "method": "GET",
+        "path": "/users/12",
+        "query": {
+            "include_details": "True"
+        }
+    },
+    "http-response": {
+        "status": 200,
+        "body": {
+            "user": {
+                "data": {
+                    "id": "12",
+                    "name": "Jip",
+                    "email": "Jip@gmail.com"
+                }
+            }
+        }
+    }
+}

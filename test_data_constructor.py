@@ -114,16 +114,31 @@ class TestDataConstructor:
         Returns:
             bool: Whether the data is valid
         """
-        field_value = jmespath.search(validation['field'], data)
-        
-        if validation['condition'] == 'not_empty':
-            return field_value is not None and field_value != ''
-        elif validation['condition'] == 'equals':
-            return field_value == validation.get('value')
-        elif validation['condition'] == 'contains':
-            return validation.get('value') in field_value
-        
-        return False
+        try:
+            field_value = jmespath.search(validation['field'], data)
+            print(f"Validating field '{validation['field']}' with value: {field_value}")
+            
+            if field_value is None:
+                print(f"Warning: Field '{validation['field']}' not found in data")
+                return False
+                
+            if validation['condition'] == 'not_empty':
+                return field_value is not None and str(field_value).strip() != ''
+            elif validation['condition'] == 'equals':
+                return str(field_value) == str(validation.get('value', ''))
+            elif validation['condition'] == 'contains':
+                target_value = str(validation.get('value', ''))
+                field_str = str(field_value)
+                result = target_value in field_str
+                print(f"Checking if '{target_value}' is in '{field_str}': {result}")
+                return result
+            
+            print(f"Warning: Unknown validation condition '{validation['condition']}'")
+            return False
+            
+        except Exception as e:
+            print(f"Error during validation: {str(e)}")
+            return False
 
     def _execute_step(self, step: Dict[str, Any], params: Dict[str, Any], context: Dict[str, Any]) -> Any:
         """
@@ -190,6 +205,7 @@ class TestDataConstructor:
         # Apply JMESPath transformation
         if 'jmespath_query' in step:
             data = self._apply_jmespath(data, step['jmespath_query'])
+            print(f"After JMESPath transformation: {data}")
 
         # Apply filter if specified
         if 'filter_query' in step:
@@ -204,12 +220,13 @@ class TestDataConstructor:
         }
         
         if 'validation' in step:
-            temp_context = {**context, step['save_as']: data}
-            is_valid = self._validate_data(temp_context, step['validation'])
+            # Use data directly instead of creating a new context
+            is_valid = self._validate_data({'data': data}, {'field': 'data.' + step['validation']['field'], **step['validation']})
             result['is_valid'] = is_valid
             result['validation_result'] = {
-                'condition': step['validation']['condition'],
                 'field': step['validation']['field'],
+                'condition': step['validation']['condition'],
+                'value': step['validation']['value'],
                 'passed': is_valid
             }
             print(f"Step {step['id']} validation {'passed' if is_valid else 'failed'}")
@@ -317,16 +334,22 @@ class TestDataConstructor:
         # Handle iteration if configured
         if 'iteration' in aggregation:
             valid_results = self._execute_iteration(aggregation, params)
-            context = {'valid_items': valid_results}
+            context = {
+                'valid_items': valid_results,
+                'params': params  # Add params to context
+            }
         else:
             # Execute steps normally
-            context = {}
+            context = {'params': params}  # Initialize context with params
             all_results = []
             for step in aggregation['steps']:
                 result = self._execute_step(step, params, context)
-                if result is None:
-                    print(f"Step {step['id']} failed, skipping remaining steps")
-                    return None
+                if result is None:  # Handle case where step execution failed completely
+                    result = {
+                        'data': None,
+                        'is_valid': False,
+                        'validation_result': None
+                    }
                 
                 # Store both the data and validation result in context
                 context[step['save_as']] = result['data']
@@ -342,7 +365,11 @@ class TestDataConstructor:
             
             # Add all results to context
             context['all_results'] = all_results
-            context['valid_results'] = [r for r in all_results if r.get('validation', {}).get('passed', True)]
+            # Safely handle validation results
+            context['valid_results'] = [
+                r for r in all_results 
+                if r and r.get('validation') and r['validation'].get('passed', False)
+            ]
 
         # Apply final transformation
         if 'transform_query' in aggregation:
