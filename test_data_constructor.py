@@ -135,7 +135,7 @@ class TestDataConstructor:
             context: Context from previous steps
             
         Returns:
-            Any: Step result if validation passes, None if validation fails
+            Any: Step result with validation information
         """
         # Load API specification
         api_spec = self._get_api_spec(step['api_spec'])
@@ -197,13 +197,24 @@ class TestDataConstructor:
             data = self._apply_jmespath(data, filter_query)
 
         # Apply step-level validation if specified
+        result = {
+            'data': data,
+            'is_valid': True,
+            'validation_result': None
+        }
+        
         if 'validation' in step:
             temp_context = {**context, step['save_as']: data}
-            if not self._validate_data(temp_context, step['validation']):
-                print(f"Step validation failed for {step['id']}")
-                return None
+            is_valid = self._validate_data(temp_context, step['validation'])
+            result['is_valid'] = is_valid
+            result['validation_result'] = {
+                'condition': step['validation']['condition'],
+                'field': step['validation']['field'],
+                'passed': is_valid
+            }
+            print(f"Step {step['id']} validation {'passed' if is_valid else 'failed'}")
 
-        return data
+        return result
 
     def _execute_iteration(self, aggregation: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -241,7 +252,16 @@ class TestDataConstructor:
                 context = {}
                 for step in aggregation['steps']:
                     result = self._execute_step(step, item_params, context)
-                    context[step['save_as']] = result
+                    context[step['save_as']] = result['data']
+                    context[f"{step['save_as']}_validation"] = {
+                        'is_valid': result['is_valid'],
+                        'validation_result': result['validation_result']
+                    }
+                    all_results.append({
+                        'step_id': step['id'],
+                        'data': result['data'],
+                        'validation': result['validation_result']
+                    })
                 
                 # Validate results if validation is configured
                 if 'validation' in iteration_config:
@@ -301,12 +321,28 @@ class TestDataConstructor:
         else:
             # Execute steps normally
             context = {}
+            all_results = []
             for step in aggregation['steps']:
                 result = self._execute_step(step, params, context)
-                if result is None:  # Step validation failed
-                    print(f"Validation failed for step {step['id']}, skipping remaining steps")
+                if result is None:
+                    print(f"Step {step['id']} failed, skipping remaining steps")
                     return None
-                context[step['save_as']] = result
+                
+                # Store both the data and validation result in context
+                context[step['save_as']] = result['data']
+                context[f"{step['save_as']}_validation"] = {
+                    'is_valid': result['is_valid'],
+                    'validation_result': result['validation_result']
+                }
+                all_results.append({
+                    'step_id': step['id'],
+                    'data': result['data'],
+                    'validation': result['validation_result']
+                })
+            
+            # Add all results to context
+            context['all_results'] = all_results
+            context['valid_results'] = [r for r in all_results if r.get('validation', {}).get('passed', True)]
 
         # Apply final transformation
         if 'transform_query' in aggregation:

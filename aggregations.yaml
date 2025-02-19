@@ -35,9 +35,15 @@ aggregations:
         user_id: user_info.id,
         name: user_info.name,
         email: user_info.email,
+        validation_status: user_info_validation.is_valid,
+        validation_details: user_info_validation.validation_result,
         total_orders: length(orders),
         total_spent: sum(orders[*].total),
         recent_orders: orders[0:5]
+      },
+      validation_summary: {
+        all_steps: all_results,
+        valid_steps: valid_results
       }
     }"
 
