@@ -133,6 +133,9 @@ class TestDataConstructor:
             step: Step configuration
             params: User-provided parameters
             context: Context from previous steps
+            
+        Returns:
+            Any: Step result if validation passes, None if validation fails
         """
         # Load API specification
         api_spec = self._get_api_spec(step['api_spec'])
@@ -170,6 +173,7 @@ class TestDataConstructor:
         print(f"Making request to {url} with method {operation['method']}")
         print(f"Query params: {query_params}")
         print(f"Request body: {body}")
+        
         # Make request
         response = requests.request(
             method=operation['method'],
@@ -191,6 +195,13 @@ class TestDataConstructor:
         if 'filter_query' in step:
             filter_query = self._format_data(step['filter_query'], params, context)
             data = self._apply_jmespath(data, filter_query)
+
+        # Apply step-level validation if specified
+        if 'validation' in step:
+            temp_context = {**context, step['save_as']: data}
+            if not self._validate_data(temp_context, step['validation']):
+                print(f"Step validation failed for {step['id']}")
+                return None
 
         return data
 
@@ -292,6 +303,9 @@ class TestDataConstructor:
             context = {}
             for step in aggregation['steps']:
                 result = self._execute_step(step, params, context)
+                if result is None:  # Step validation failed
+                    print(f"Validation failed for step {step['id']}, skipping remaining steps")
+                    return None
                 context[step['save_as']] = result
 
         # Apply final transformation
